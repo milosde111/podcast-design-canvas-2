@@ -69,6 +69,39 @@
     { id: "punchy", label: "Punchy", note: "Tighter cuts and quicker reframes for more energy." },
   ];
 
+  const SAMPLE_SPEAKERS = [
+    { role: "Host", name: "Sam Rivera" },
+    { role: "Guest 1", name: "Dana Kim" },
+    { role: "Guest 2", name: "Alex Chen" },
+  ];
+
+  const PRESET_PREVIEW_DETAILS = {
+    "studio-spotlight": {
+      titleTreatment: "lower-third",
+      overlayLabel: "LIVE",
+      captionText: "Welcome back — let's dive in.",
+      episodeTitle: "Building in Public",
+    },
+    "split-stage": {
+      titleTreatment: "topic-card",
+      overlayLabel: "Topic card",
+      captionText: "Two founders, one honest conversation.",
+      episodeTitle: "Founders Unfiltered",
+    },
+    "panel-grid": {
+      titleTreatment: "minimal-tag",
+      overlayLabel: "Show logo",
+      captionText: "Roundtable with the whole panel.",
+      episodeTitle: "The Weekly Panel",
+    },
+    "bold-broadcast": {
+      titleTreatment: "broadcast",
+      overlayLabel: "Breaking",
+      captionText: "BIG IDEA: Ship faster, learn louder.",
+      episodeTitle: "Bold Takes",
+    },
+  };
+
   function defaultPreset() {
     return STYLE_PRESETS[0];
   }
@@ -185,10 +218,66 @@
     };
   }
 
+  function previewDetailsForPreset(preset) {
+    const item = preset && preset.id ? preset : defaultPreset();
+    return PRESET_PREVIEW_DETAILS[item.id] || {
+      titleTreatment: "lower-third",
+      overlayLabel: "",
+      captionText: "Sample caption for your episode.",
+      episodeTitle: "Episode preview",
+    };
+  }
+
+  function buildRichPreviewModel(preset, selection, options) {
+    const opts = options || {};
+    const item = preset && preset.id ? preset : defaultPreset();
+    const speakers = Array.isArray(opts.speakers) && opts.speakers.length
+      ? opts.speakers
+      : SAMPLE_SPEAKERS;
+    const sel = selection || {
+      presetId: item.id,
+      layout: item.defaultLayout,
+      pacing: "balanced",
+    };
+    const details = previewDetailsForPreset(item);
+    const showName = trim(opts.showName) || "Your show";
+    const episodeTitle = trim(opts.episodeTitle) || details.episodeTitle || showName;
+    const frames = buildPreviewFrames(speakers, sel, speakers.length);
+    const layoutId = resolveLayout(sel, speakers.length);
+    const pacing = getPacing(sel.pacing);
+    const summary = presetCardSummary(item);
+    return {
+      presetId: item.id,
+      presetName: item.name,
+      tagline: item.tagline,
+      showName: showName,
+      titleText: episodeTitle,
+      captionText: details.captionText,
+      overlayLabel: details.overlayLabel,
+      titleTreatment: details.titleTreatment,
+      frames: frames,
+      layoutId: layoutId,
+      pacingLabel: pacing.label,
+      captionStyle: item.captionStyle,
+      formatCue: summary.formatCue,
+      theme: {
+        background: item.background,
+        surface: item.surface,
+        accent: item.accent,
+        textColor: item.textColor,
+      },
+    };
+  }
+
+  function trim(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
   const api = {
     STYLE_PRESETS,
     LAYOUTS,
     PACING,
+    SAMPLE_SPEAKERS,
     defaultPreset,
     getPreset,
     getLayout,
@@ -200,6 +289,8 @@
     summarizeStyle,
     presetCardSummary,
     layoutCardSummary,
+    previewDetailsForPreset,
+    buildRichPreviewModel,
   };
 
   if (typeof module !== "undefined" && module.exports) {
