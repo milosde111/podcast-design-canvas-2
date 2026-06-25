@@ -10,6 +10,7 @@
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
   const VM = window.PdcVisualMoments;
+  const EXP = window.PdcEpisodeExport;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -35,6 +36,7 @@
   // Kept in module state so edits survive navigating away and back; mirrored to localStorage.
   let momentsBoard = null;
   let selectedMomentId = null;
+  let exportJob = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
 
   function safeLoadMoments() {
@@ -464,6 +466,22 @@
 
   // ---- Workspace summary view -------------------------------------------------
 
+  function buildExportContext(summary) {
+    const templateName = activeTemplateId && TM
+      ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
+      : "";
+    let momentsSummary = null;
+    if (VM && momentsBoard) {
+      momentsSummary = VM.summarizeBoard(momentsBoard);
+    }
+    return {
+      audioPolish: appliedAudioPolish,
+      appliedStyle: appliedStyle,
+      templateName: templateName || "",
+      momentsSummary: momentsSummary,
+    };
+  }
+
   function renderWorkspace(summary) {
     root.innerHTML = "";
     setStep("Step 1 of 6 · Episode workspace");
@@ -629,9 +647,13 @@
       if (momentsSummary && momentsSummary.reviewLine) {
         reviewCard.appendChild(el("p", { class: "review-line" }, momentsSummary.reviewLine));
       }
-      if (review.readyForExport) {
+      if (review.readyForExport && appliedStyle) {
         reviewCard.appendChild(
-          el("p", { class: "review-ready" }, "Audio treatment saved — ready for export when visual editing is complete."),
+          el("p", { class: "review-ready" }, "Episode choices saved — ready to export."),
+        );
+      } else if (review.readyForExport) {
+        reviewCard.appendChild(
+          el("p", { class: "review-ready" }, "Audio treatment saved — choose a visual style to export."),
         );
       }
       view.appendChild(reviewCard);
@@ -680,14 +702,28 @@
     if (visualAvailable) {
       visualButton.addEventListener("click", () => renderVisualMoments(summary));
     }
-    const nextTitle = activeTemplateId
+    const exportAvailable = Boolean(EXP);
+    const exportReady = exportAvailable && EXP.validateReadiness(buildExportContext(summary)).ok;
+    const exportButton = el(
+      "button",
+      { type: "button", class: exportReady ? "primary" : "ghost", disabled: exportAvailable ? null : true },
+      exportJob && exportJob.status === "ready" ? "View export →" : "Export episode →",
+    );
+    if (exportAvailable) {
+      exportButton.addEventListener("click", () => renderExport(summary));
+    }
+    const nextTitle = exportJob && exportJob.status === "ready"
+      ? "Export complete"
+      : activeTemplateId
       ? "Template saved"
       : appliedStyle
         ? "Style applied"
         : appliedAudioPolish
           ? "Audio polished"
           : "Ready for the next step";
-    const nextCopy = activeTemplateId
+    const nextCopy = exportJob && exportJob.status === "ready"
+      ? `Your episode is ready to download as ${exportJob.downloadName}.`
+      : activeTemplateId
       ? "Your show template is saved and ready for the next episode."
       : appliedStyle
         ? "Your style is set. Open the canvas editor to personalize the layout and save a reusable show template."
@@ -710,6 +746,9 @@
     }
     if (visualAvailable) {
       actions.appendChild(visualButton);
+    }
+    if (exportAvailable && exportReady) {
+      actions.appendChild(exportButton);
     }
     actions.appendChild(
       (function () {
@@ -737,6 +776,179 @@
         view.appendChild(renderSavedTemplatesCard(saved, summary));
       }
     }
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Export & publish (#30) -------------------------------------------------
+
+  function renderExport(summary) {
+    root.innerHTML = "";
+    setStep("Step 6 of 6 · Export & publish");
+    if (!EXP) {
+      return;
+    }
+
+    const ctx = buildExportContext(summary);
+    const readiness = EXP.validateReadiness(ctx);
+    if (!exportJob) {
+      exportJob = EXP.createExport(summary, {
+        templateId: activeTemplateId || "",
+        templateName: ctx.templateName || "",
+      });
+    }
+
+    const view = el("div", { class: "export-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Export & publish"),
+        el("h2", {}, `Publish ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Review your episode, choose publishing options, and export a long-form video ready to upload."),
+      ),
+    );
+
+    if (!readiness.ok) {
+      view.appendChild(
+        el(
+          "section",
+          { class: "card export-blocked" },
+          el("h3", {}, "Not ready to export yet"),
+          el("p", { class: "field-error" }, readiness.error),
+        ),
+      );
+      const backBlocked = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+      backBlocked.addEventListener("click", () => renderWorkspace(summary));
+      view.appendChild(el("div", { class: "actions" }, backBlocked));
+      root.appendChild(view);
+      view.scrollIntoView({ block: "start" });
+      return;
+    }
+
+    const finalSummary = EXP.buildFinalSummary(summary, ctx, exportJob);
+    const summaryCard = el("section", { class: "card export-summary" }, el("h3", {}, "Final episode summary"));
+    finalSummary.lines.forEach((line) => {
+      summaryCard.appendChild(el("p", { class: "export-summary-line" }, line));
+    });
+    view.appendChild(summaryCard);
+
+    const grid = el("div", { class: "export-layout" });
+
+    const optionsCard = el("section", { class: "card" }, el("h3", {}, "Publishing options"));
+    const platformGrid = el("div", { class: "export-option-grid" });
+    EXP.PLATFORMS.forEach((platform) => {
+      const selected = exportJob.platform === platform.id;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          class: `export-option-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        el("span", { class: "export-option-name" }, platform.name),
+        el("span", { class: "export-option-tagline" }, platform.tagline),
+      );
+      card.addEventListener("click", () => {
+        exportJob = EXP.updateOption(exportJob, "platform", platform.id);
+        renderExport(summary);
+      });
+      platformGrid.appendChild(card);
+    });
+    optionsCard.appendChild(field("Platform", platformGrid, null, "Where you plan to publish this episode."));
+
+    const resolutionSelect = el("select", { id: "export-resolution" });
+    EXP.RESOLUTIONS.forEach((item) => {
+      resolutionSelect.appendChild(
+        el("option", { value: item.id, selected: exportJob.resolution === item.id ? true : null }, item.label),
+      );
+    });
+    resolutionSelect.addEventListener("change", (e) => {
+      exportJob = EXP.updateOption(exportJob, "resolution", e.target.value);
+      renderExport(summary);
+    });
+    optionsCard.appendChild(field("Resolution", resolutionSelect, null, EXP.getResolution(exportJob.resolution).tagline));
+
+    const captionSelect = el("select", { id: "export-captions" });
+    EXP.CAPTION_MODES.forEach((item) => {
+      captionSelect.appendChild(
+        el("option", { value: item.id, selected: exportJob.captionMode === item.id ? true : null }, item.label),
+      );
+    });
+    captionSelect.addEventListener("change", (e) => {
+      exportJob = EXP.updateOption(exportJob, "captionMode", e.target.value);
+      renderExport(summary);
+    });
+    optionsCard.appendChild(field("Captions", captionSelect, null, EXP.getCaptionMode(exportJob.captionMode).tagline));
+
+    if (TM) {
+      const saved = TM.listTemplates(templateStore);
+      if (saved.length) {
+        const templateSelect = el("select", { id: "export-template" });
+        templateSelect.appendChild(el("option", { value: "" }, "No saved template"));
+        saved.forEach((item) => {
+          templateSelect.appendChild(
+            el(
+              "option",
+              {
+                value: item.id,
+                selected: exportJob.templateId === item.id || (!exportJob.templateId && activeTemplateId === item.id) ? true : null,
+              },
+              item.name,
+            ),
+          );
+        });
+        templateSelect.addEventListener("change", (e) => {
+          const picked = saved.find((item) => item.id === e.target.value);
+          exportJob = EXP.updateOption(exportJob, "templateId", e.target.value);
+          exportJob = EXP.updateOption(exportJob, "templateName", picked ? picked.name : "");
+          renderExport(summary);
+        });
+        optionsCard.appendChild(field("Show template", templateSelect, null, "Reuse a saved layout identity in this export."));
+      }
+    }
+
+    grid.appendChild(optionsCard);
+
+    const statusCard = el("section", { class: "card export-status-card" }, el("h3", {}, "Export status"));
+    const exportSummary = EXP.summarizeExport(exportJob);
+    if (exportJob.status === "ready") {
+      statusCard.appendChild(
+        el("p", { class: "export-ready" }, `Ready to download: ${exportJob.downloadName}`),
+      );
+      statusCard.appendChild(
+        el("p", { class: "hint" }, `${exportSummary.platformName} · ${exportSummary.resolutionLabel} · ${exportSummary.captionLabel}`),
+      );
+    } else {
+      statusCard.appendChild(
+        el("p", { class: "hint" }, "Start export when your publishing options look right."),
+      );
+    }
+    grid.appendChild(statusCard);
+    view.appendChild(grid);
+
+    const actions = el("div", { class: "actions" });
+    if (exportJob.status !== "ready") {
+      const startButton = el("button", { type: "button", class: "primary" }, "Start export →");
+      startButton.addEventListener("click", () => {
+        const result = EXP.runExport(exportJob, summary, ctx);
+        if (!result.ok) {
+          return;
+        }
+        exportJob = result.state;
+        renderExport(summary);
+      });
+      actions.appendChild(startButton);
+    } else {
+      const doneButton = el("button", { type: "button", class: "primary" }, "Done — back to workspace");
+      doneButton.addEventListener("click", () => renderWorkspace(summary));
+      actions.appendChild(doneButton);
+    }
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    actions.appendChild(back);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });

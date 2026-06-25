@@ -1199,3 +1199,67 @@ button:disabled {
   color: var(--ink-soft);
   margin: 12px 0 0;
 }
+
+/* ---- Export & publish (#30) ---- */
+.export-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .export-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.export-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.export-option-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.export-option-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.export-option-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.export-option-tagline {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.export-summary-line {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.export-ready {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.export-blocked .field-error {
+  margin: 0;
+}
